@@ -66,11 +66,11 @@ float float_abs(float in){
 	return in < 0 ? -in : in;
 }
 
-#define PDM_BUFFER_SIZE 20
-#define PCM_BUFFER_SIZE 200
+#define PDM_BUFFER_SIZE 200
+#define PCM_BUFFER_SIZE 20
 #define LEAKY_KEEP_RATE 0.95
 #define UART_DEBUG_TICK_RATE 100
-#define PDM_BLOCK_SIZE_BITS 16
+#define PDM_BLOCK_SIZE_BITS 8
 
 /* USER CODE END 0 */
 
@@ -81,8 +81,8 @@ int main(void)
   uint8_t i;
   uint16_t pdm_buffer[PDM_BUFFER_SIZE]; // Buffer for pdm value from hi2s2 (Mic)
   uint16_t pdm_value = 0;				// For keeping pcm value calculated from pdm_value
-  uint8_t pcm_value = 0;				// value range is 0-16, 8-bit is chosen because it can store 0-255
-
+  int8_t pcm_value = 0;				// value range is -127 to 127
+  int pcm_count = 0 ;
   char uart_temp_display_buffer[100];
 
   float leaky_pcm_buffer = 0.0;			// Fast Estimation of moving average of PDM
@@ -119,7 +119,7 @@ int main(void)
 	  HAL_I2S_Receive(&hi2s2,pdm_buffer,PDM_BUFFER_SIZE,1000); // Receive PDM from Mic
 
 	  for(i=0;i<PDM_BUFFER_SIZE;i++){
-		  pcm_value = 0;
+		  pcm_value = -PDM_BLOCK_SIZE_BITS/2;
 		  pdm_value = pdm_buffer[i];
 		  //calculate PCM value
 		  while(pdm_value!=0){
@@ -131,6 +131,7 @@ int main(void)
 		  leaky_amp_buffer += float_abs(leaky_pcm_buffer);
 		  leaky_amp_buffer *= LEAKY_KEEP_RATE;
 	  }
+	  pcm_count++;
 	  if (pcm_value > 9){ // if sound is loud enough (range 10-16)
 		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
 	  }
@@ -138,17 +139,21 @@ int main(void)
 		  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
 	  }
 
-	  max_amp = leaky_amp_buffer;
-	  sprintf(uart_temp_display_buffer, "L : %d\t", (int)max_amp);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)uart_temp_display_buffer, strlen(uart_temp_display_buffer), 100);
-	  max_amp = max_amp-2800;
-	  while(max_amp>0){
-		  max_amp=max_amp-42;
-	      HAL_UART_Transmit(&huart2, "I", 1, 100);
+	  if(max_amp<leaky_amp_buffer) max_amp = leaky_amp_buffer;
+
+	  if(PCM_BUFFER_SIZE==pcm_count){
+		  sprintf(uart_temp_display_buffer, "L : %d\t", (int)max_amp);
+		  HAL_UART_Transmit(&huart2, (uint8_t*)uart_temp_display_buffer, strlen(uart_temp_display_buffer), 100);
+		  max_amp = max_amp-1448;
+		  while(max_amp>0){
+			  max_amp=max_amp-74;
+			  HAL_UART_Transmit(&huart2,"I", 1, 100);
+		  }
+		  HAL_UART_Transmit(&huart2, "\n\r", 2, 100);
+		  max_amp = 0;
+		  pcm_count=0;
 	  }
-	  HAL_UART_Transmit(&huart2, "\n\r", 2, 100);
-	  max_amp = 0;
-	  HAL_Delay(100);
+	  //HAL_Delay(100);
   }
   /* USER CODE END 3 */
 
